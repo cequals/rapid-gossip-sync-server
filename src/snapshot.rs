@@ -73,7 +73,7 @@ impl<L: Deref + Clone> Snapshotter<L> where L::Target: Logger {
 		let snapshot_generation_time = SystemTime::now();
 		let snapshot_generation_timestamp = snapshot_generation_time.duration_since(UNIX_EPOCH).unwrap().as_secs();
 		let reference_timestamp = Self::round_down_to_nearest_multiple(snapshot_generation_timestamp, snapshot_interval);
-		log_info!(self.logger, "Capturing snapshots at {} for: {}", snapshot_generation_timestamp, reference_timestamp);
+		log_info!(self.logger, "#### Capturing snapshots at {} for: {}", snapshot_generation_timestamp, reference_timestamp);
 
 		// 2. sleep until the next round interval
 		// 3. refresh all snapshots
@@ -114,13 +114,14 @@ impl<L: Deref + Clone> Snapshotter<L> where L::Target: Logger {
 		};
 
 		let mut snapshot_filenames_by_scope: HashMap<u64, String> = HashMap::with_capacity(10);
-
+		log_info!(self.logger, "#### Persisting scoped snapshots");
 		for (current_scope, current_last_sync_timestamp) in &snapshot_sync_timestamps {
 			let network_graph_clone = self.network_graph.clone();
 			{
 				log_info!(self.logger, "Calculating {}-second snapshot", current_scope);
 				// calculate the snapshot
 				let delta = super::calculate_delta(network_graph_clone.clone(), current_last_sync_timestamp.clone() as u32, Some(reference_timestamp), self.logger.clone()).await;
+				log_info!(self.logger, "#### Serializing delta");
 				let snapshot_v1 = super::serialize_delta(&delta, 1, self.logger.clone());
 				let snapshot_v2 = super::serialize_delta(&delta, 2, self.logger.clone());
 
@@ -128,19 +129,19 @@ impl<L: Deref + Clone> Snapshotter<L> where L::Target: Logger {
 				let snapshot_filename = format!("snapshot__calculated-at:{}__range:{}-scope__previous-sync:{}.lngossip", reference_timestamp, current_scope, current_last_sync_timestamp);
 				let snapshot_path_v1 = format!("{}/{}", pending_snapshot_directory, snapshot_filename);
 				let snapshot_path_v2 = format!("{}/v2/{}", pending_snapshot_directory, snapshot_filename);
-				log_info!(self.logger, "Persisting {}-second snapshot: {} ({} messages, {} announcements, {} updates ({} full, {} incremental))", current_scope, snapshot_filename, snapshot_v1.message_count, snapshot_v1.channel_announcement_count, snapshot_v1.update_count, snapshot_v1.update_count_full, snapshot_v1.update_count_incremental);
+				log_info!(self.logger, "#### Persisting {}-second snapshot: {} ({} messages, {} announcements, {} updates ({} full, {} incremental))", current_scope, snapshot_filename, snapshot_v1.message_count, snapshot_v1.channel_announcement_count, snapshot_v1.update_count, snapshot_v1.update_count_full, snapshot_v1.update_count_incremental);
 				match fs::write(&snapshot_path_v1, snapshot_v1.data) {
-					Ok(_) => log_info!(self.logger, "Successfully wrote: {}", snapshot_path_v1),
-					Err(e) => log_error!(self.logger, "FAILED to write {}: {}", snapshot_path_v1, e),
+					Ok(_) => log_info!(self.logger, "#### Successfully wrote: {}", snapshot_path_v1),
+					Err(e) => log_error!(self.logger, "#### FAILED to write {}: {}", snapshot_path_v1, e),
 				}				
 				match fs::write(&snapshot_path_v2, snapshot_v2.data) {
-					Ok(_) => log_info!(self.logger, "Successfully wrote: {}", snapshot_path_v2),
-					Err(e) => log_error!(self.logger, "FAILED to write {}: {}", snapshot_path_v2, e),
+					Ok(_) => log_info!(self.logger, "#### Successfully wrote: {}", snapshot_path_v2),
+					Err(e) => log_error!(self.logger, "#### FAILED to write {}: {}", snapshot_path_v2, e),
 				}
 				snapshot_filenames_by_scope.insert(current_scope.clone(), snapshot_filename);
 			}
 		}
-
+		log_info!(self.logger, "#### Creating symlinks");
 		{
 			// create dummy symlink
 			let dummy_filename = "empty_delta.lngossip";
@@ -153,17 +154,18 @@ impl<L: Deref + Clone> Snapshotter<L> where L::Target: Logger {
 
 			let dummy_symlink_path = format!("{}/{}.bin", pending_symlink_directory, reference_timestamp);
 			let relative_dummy_snapshot_path = format!("{}/{}", relative_symlink_to_snapshot_path, dummy_filename);
-			log_info!(self.logger, "Symlinking dummy: {} -> {}", dummy_symlink_path, relative_dummy_snapshot_path);
+			log_info!(self.logger, "#### Symlinking dummy: {} -> {}", dummy_symlink_path, relative_dummy_snapshot_path);
 			symlink(&relative_dummy_snapshot_path, &dummy_symlink_path).unwrap();
 		}
 
 		// Number of intervals since Jan 1, 2022, a few months before RGS server was released.
 		let mut symlink_count = (reference_timestamp - 1640995200) / granularity_interval;
+		log_info!(self.logger, "#### Symlink count: {}", symlink_count.to_string());
 		if let Some(max_symlink_count) = max_symlink_count {
 			// this is primarily useful for testing
 			symlink_count = std::cmp::min(symlink_count, max_symlink_count);
 		};
-
+		log_info!(self.logger, "#### Iterating over symlinks");
 		for i in 0..symlink_count {
 			// let's create non-dummy-symlinks
 
@@ -210,13 +212,13 @@ impl<L: Deref + Clone> Snapshotter<L> where L::Target: Logger {
 				symlink(&relative_snapshot_path, &symlink_path).unwrap();
 			}
 		}
-
+		log_info!(self.logger, "#### Updating update_time.txt");
 		let update_time_path = format!("{}/update_time.txt", pending_symlink_directory);
 		let update_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
 		log_info!(self.logger, "Updating update_time.txt at: {}", update_time_path);
 		match fs::write(&update_time_path, format!("{}", update_time)) {
-			Ok(_) => log_info!(self.logger, "Successfully updated update_time.txt to {}", update_time),
-			Err(e) => log_error!(self.logger, "FAILED to update update_time.txt: {}", e),
+			Ok(_) => log_info!(self.logger, "#### Successfully updated update_time.txt to {}", update_time),
+			Err(e) => log_error!(self.logger, "#### FAILED to update update_time.txt: {}", e),
 		}
 
 		if fs::metadata(&finalized_snapshot_directory).is_ok() {
@@ -227,13 +229,13 @@ impl<L: Deref + Clone> Snapshotter<L> where L::Target: Logger {
 		}
 		log_info!(self.logger, "Moving snapshots from {} to {}", pending_snapshot_directory, finalized_snapshot_directory);
 		match fs::rename(&pending_snapshot_directory, &finalized_snapshot_directory) {
-			Ok(_) => log_info!(self.logger, "Successfully moved snapshots to finalized directory"),
-			Err(e) => log_error!(self.logger, "FAILED to move snapshots: {}", e),
+			Ok(_) => log_info!(self.logger, "#### Successfully moved snapshots to finalized directory"),
+			Err(e) => log_error!(self.logger, "#### FAILED to move snapshots: {}", e),
 		}
 		log_info!(self.logger, "Moving snapshots from {} to {}", pending_snapshot_directory, finalized_snapshot_directory);
 		match fs::rename(&pending_symlink_directory, &finalized_symlink_directory) {
-			Ok(_) => log_info!(self.logger, "Successfully moved snapshots to finalized directory"),
-			Err(e) => log_error!(self.logger, "FAILED to move snapshots: {}", e),
+			Ok(_) => log_info!(self.logger, "#### Successfully moved snapshots to finalized directory"),
+			Err(e) => log_error!(self.logger, "#### FAILED to move snapshots: {}", e),
 		}
 	}
 

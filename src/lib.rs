@@ -183,23 +183,24 @@ fn serialize_empty_blob(current_timestamp: u64, serialization_version: u8) -> Ve
 }
 
 async fn calculate_delta<L: Deref + Clone>(network_graph: Arc<NetworkGraph<L>>, last_sync_timestamp: u32, snapshot_reference_timestamp: Option<u64>, logger: L) -> SerializationSet where L::Target: Logger {
+	log_info!(logger, "#### connecting to DB");
 	let client = connect_to_db().await;
-
+	log_info!(logger, "#### removing stale channels and tracking");
 	network_graph.remove_stale_channels_and_tracking();
 
 	// set a flag if the chain hash is prepended
 	// chain hash only necessary if either channel announcements or non-incremental updates are present
 	// for announcement-free incremental-only updates, chain hash can be skipped
-
+	log_info!(logger, "#### fetching channel announcements");
 	let mut delta_set = DeltaSet::new();
 	lookup::fetch_channel_announcements(&mut delta_set, Arc::clone(&network_graph), &client, last_sync_timestamp, snapshot_reference_timestamp, logger.clone()).await;
-	log_info!(logger, "announcement channel count: {}", delta_set.len());
+	log_info!(logger, "#### announcement channel count: {}", delta_set.len());
 	lookup::fetch_channel_updates(&mut delta_set, &client, last_sync_timestamp, logger.clone()).await;
-	log_info!(logger, "update-fetched channel count: {}", delta_set.len());
+	log_info!(logger, "#### update-fetched channel count: {}", delta_set.len());
 	let node_delta_set = lookup::fetch_node_updates(network_graph, &client, last_sync_timestamp, snapshot_reference_timestamp, logger.clone()).await;
-	log_info!(logger, "update-fetched node count: {}", node_delta_set.len());
+	log_info!(logger, "#### update-fetched node count: {}", node_delta_set.len());
 	lookup::filter_delta_set(&mut delta_set, logger.clone());
-	log_info!(logger, "update-filtered channel count: {}", delta_set.len());
+	log_info!(logger, "#### update-filtered channel count: {}", delta_set.len());
 	serialization::serialize_delta_set(delta_set, node_delta_set, last_sync_timestamp)
 }
 
