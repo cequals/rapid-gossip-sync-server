@@ -13,7 +13,7 @@ use tokio::sync::{mpsc, Mutex, Semaphore};
 use crate::config;
 use crate::types::GossipMessage;
 
-const POSTGRES_INSERT_TIMEOUT: Duration = Duration::from_secs(15);
+const POSTGRES_INSERT_TIMEOUT: Duration = Duration::from_secs(60);
 const INSERT_PARALELLISM: usize = 16;
 
 pub(crate) struct GossipPersister<L: Deref> where L::Target: Logger {
